@@ -1,0 +1,35 @@
+# [web-tools] Build codex.exe (x86_64-pc-windows-msvc) with the web-tools
+# extension baked in. Kept separate from upstream CI so upstream merges stay
+# trivial; upstream workflow files are never touched.
+name: webtools-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "codex-rs/**"
+      - ".github/workflows/webtools-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (channel pinned by codex-rs/rust-toolchain.toml)
+        run: rustup toolchain install 1.95.0 --profile minimal --component clippy rustfmt rust-src
+
+      - name: Build codex.exe (release, MSVC)
+        working-directory: codex-rs
+        run: cargo build --locked --release -p codex-cli --bin codex
+
+      - name: Upload codex.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-x86_64-pc-windows-msvc
+          path: codex-rs/target/release/codex.exe
+          retention-days: 30
