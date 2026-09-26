@@ -2116,6 +2116,7 @@ dependencies = [
  "codex-utils-path-uri",
  "codex-utils-pty",
  "codex-web-search-extension",
+ "codex-web-tools-extension",
  "codex-websocket-auth",
  "codex-windows-sandbox",
  "core_test_support",
@@ -5173,6 +5174,27 @@ dependencies = [
  "pretty_assertions",
  "schemars 0.8.22",
  "serde_json",
+ "url",
+]
+
+[[package]]
+name = "codex-web-tools-extension"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "codex-core",
+ "codex-extension-api",
+ "codex-extension-items",
+ "codex-protocol",
+ "codex-tools",
+ "pretty_assertions",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
  "url",
 ]
 

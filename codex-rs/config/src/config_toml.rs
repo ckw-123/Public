@@ -654,8 +654,36 @@ pub struct ToolsToml {
         deserialize_with = "deserialize_optional_web_search_tool_config"
     )]
     pub web_search: Option<WebSearchToolConfig>,
+    // [web-tools]
+    pub web_tools: Option<WebToolsToml>,
     pub experimental_request_user_input: Option<ExperimentalRequestUserInput>,
     pub update_plan: Option<UpdatePlanToolConfig>,
+}
+
+// [web-tools] Built-in web search/fetch tools (Bing + Exa + Firecrawl) for
+// providers without a hosted web tool.
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct WebToolsToml {
+    /// The section's presence already enables the tools; set `false` to
+    /// disable explicitly.
+    pub enabled: Option<bool>,
+    /// Exa API key (fallback search + primary fetch). Prefer the
+    /// `EXA_API_KEY` environment variable over storing keys here.
+    pub exa_api_key: Option<String>,
+    /// Firecrawl API key (fallback fetch; anti-bot pages, PDFs). Prefer the
+    /// `FIRECRAWL_API_KEY` environment variable over storing keys here.
+    pub firecrawl_api_key: Option<String>,
+    /// Optional explicit proxy URL (e.g. `http://127.0.0.1:2080`) for the
+    /// Bing "change exit" retry rung. Everything else stays direct.
+    pub bing_proxy: Option<String>,
+    /// Default `search_web` result count (clamped to 1..=15).
+    pub search_max_results: Option<u32>,
+    /// Max characters of page text returned by `fetch_web`.
+    pub fetch_max_chars: Option<usize>,
+    pub exa_timeout_secs: Option<u64>,
+    pub firecrawl_timeout_secs: Option<u64>,
+    pub bing_timeout_secs: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]

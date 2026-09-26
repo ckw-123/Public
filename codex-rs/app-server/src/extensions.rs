@@ -98,6 +98,8 @@ pub(crate) fn thread_extensions(
     codex_mcp_extension::install(&mut builder);
     codex_mcp_extension::install_plugins(&mut builder, environment_manager);
     codex_web_search_extension::install(&mut builder, auth_manager.clone());
+    // [web-tools] Provider-independent Bing/Exa/Firecrawl tools (config-gated).
+    codex_web_tools_extension::install(&mut builder);
     codex_image_generation_extension::install(&mut builder, auth_manager, |config: &Config| {
         Some(config.codex_home.clone())
     });

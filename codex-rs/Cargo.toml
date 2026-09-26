@@ -74,6 +74,7 @@ members = [
     "ext/queue",
     "ext/skills",
     "ext/web-search",
+    "ext/web-tools", # [web-tools]
     "external-agent-migration",
     "keyring-store",
     "file-search",
@@ -245,6 +246,7 @@ codex-mermaid = { path = "mermaid" }
 codex-message-history = { path = "message-history" }
 codex-memories-extension = { path = "ext/memories" }
 codex-web-search-extension = { path = "ext/web-search" }
+codex-web-tools-extension = { path = "ext/web-tools" } # [web-tools]
 codex-memories-read = { path = "memories/read" }
 codex-memories-write = { path = "memories/write" }
 codex-mcp = { path = "codex-mcp" }

@@ -26,6 +26,7 @@ use codex_config::SandboxModeRequirement;
 use codex_config::Sourced;
 use codex_config::ThreadConfigLoader;
 use codex_config::config_toml::ConfigToml;
+use codex_config::config_toml::WebToolsToml; // [web-tools]
 use codex_config::config_toml::DEFAULT_PROJECT_DOC_MAX_BYTES;
 use codex_config::config_toml::ProjectConfig;
 use codex_config::config_toml::RealtimeAudioConfig;
@@ -1057,6 +1058,10 @@ pub struct Config {
 
     /// Additional parameters for the web search tool when it is enabled.
     pub web_search_config: Option<WebSearchConfig>,
+
+    /// [web-tools] Built-in `search_web` / `fetch_web` tools (Bing + Exa +
+    /// Firecrawl) from `[tools.web_tools]`; `None` keeps them off.
+    pub web_tools_config: Option<WebToolsToml>,
 
     /// Whether to register the experimental request_user_input tool.
     pub experimental_request_user_input_enabled: bool,
@@ -2683,6 +2688,14 @@ fn resolve_web_search_config(config_toml: &ConfigToml) -> Option<WebSearchConfig
         .map(Into::into)
 }
 
+// [web-tools]
+fn resolve_web_tools_config(config_toml: &ConfigToml) -> Option<WebToolsToml> {
+    config_toml
+        .tools
+        .as_ref()
+        .and_then(|tools| tools.web_tools.clone())
+}
+
 fn resolve_experimental_request_user_input_enabled(config_toml: &ConfigToml) -> bool {
     config_toml
         .tools
@@ -3742,6 +3755,7 @@ impl Config {
         let web_search_mode =
             resolve_web_search_mode(&cfg, &features).unwrap_or(WebSearchMode::Cached);
         let web_search_config = resolve_web_search_config(&cfg);
+        let web_tools_config = resolve_web_tools_config(&cfg); // [web-tools]
         let experimental_request_user_input_enabled =
             resolve_experimental_request_user_input_enabled(&cfg);
         let update_plan_enabled = resolve_update_plan_enabled(&cfg);
@@ -4410,6 +4424,7 @@ impl Config {
             forced_login_method,
             web_search_mode: constrained_web_search_mode.value,
             web_search_config,
+            web_tools_config, // [web-tools]
             experimental_request_user_input_enabled,
             update_plan_enabled,
             tool_registry,
