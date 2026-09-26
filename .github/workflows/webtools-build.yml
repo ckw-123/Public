@@ -25,6 +25,10 @@ jobs:
 
       - name: Build codex.exe (release, MSVC)
         working-directory: codex-rs
+        env:
+          STABLE_GIT_COMMIT: ${{ github.sha }}
+          # Mirrors upstream rust-release-windows.yml for this target.
+          LIBSQLITE3_FLAGS: SQLITE_DISABLE_INTRINSIC
         run: cargo build --locked --release -p codex-cli --bin codex
 
       - name: Upload codex.exe artifact
