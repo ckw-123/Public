@@ -20,6 +20,24 @@ pub(crate) fn static_regex(pattern: &str) -> Regex {
 static TAG: LazyLock<Regex> = LazyLock::new(|| static_regex(r"(?s)<[^>]+>"));
 static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| static_regex(r"\s+"));
 
+/// Decode a numeric HTML entity (`&#123;` / `&#x1F600;`) at the start of
+/// `s`. Returns (consumed bytes, decoded char); None when malformed or not
+/// a valid Unicode scalar (Bing emits zero-padded forms like `&#0183;`).
+fn decode_numeric_entity(s: &str) -> Option<(usize, char)> {
+    let body = s.strip_prefix("&#")?;
+    let (num, radix) = match body.strip_prefix(['x', 'X']) {
+        Some(hex) => (hex, 16),
+        None => (body, 10),
+    };
+    let end = num.find(|c: char| !c.is_digit(radix))?;
+    if end == 0 || num.as_bytes()[end] != b';' {
+        return None;
+    }
+    let value = u32::from_str_radix(&num[..end], radix).ok()?;
+    let ch = char::from_u32(value)?;
+    Some((2 + (body.len() - num.len()) + end + 1, ch))
+}
+
 /// Minimal single-pass HTML entity unescape for SERP fragments.
 pub(crate) fn unescape_html(input: &str) -> String {
     if !input.contains('&') {
@@ -34,8 +52,6 @@ pub(crate) fn unescape_html(input: &str) -> String {
             ("&amp;", "&")
         } else if rest.starts_with("&quot;") {
             ("&quot;", "\"")
-        } else if rest.starts_with("&#39;") {
-            ("&#39;", "'")
         } else if rest.starts_with("&apos;") {
             ("&apos;", "'")
         } else if rest.starts_with("&lt;") {
@@ -44,6 +60,10 @@ pub(crate) fn unescape_html(input: &str) -> String {
             ("&gt;", ">")
         } else if rest.starts_with("&nbsp;") {
             ("&nbsp;", " ")
+        } else if let Some((len, ch)) = decode_numeric_entity(rest) {
+            out.push(ch);
+            rest = &rest[len..];
+            continue;
         } else {
             out.push('&');
             rest = &rest[1..];
@@ -106,6 +126,17 @@ mod tests {
         assert_eq!(unescape_html("a&amp;b&lt;c&gt;&quot;d&#39;e"), "a&b<c>\"d'e");
         assert_eq!(unescape_html("plain"), "plain");
         assert_eq!(unescape_html("100% & more"), "100% & more");
+    }
+
+    #[test]
+    fn unescapes_numeric_entities() {
+        // Bing snippets arrive zero-padded: `&#0183;` = `·`, `&#32;` = space.
+        assert_eq!(unescape_html("Jan 23, 2026&#0183;&#32;x"), "Jan 23, 2026· x");
+        assert_eq!(unescape_html("&#x4E2D;&#x6587;&#39;"), "中文'");
+        // Malformed / invalid scalars stay literal.
+        assert_eq!(unescape_html("&#;"), "&#;");
+        assert_eq!(unescape_html("&#xD800;"), "&#xD800;");
+        assert_eq!(unescape_html("&#99999999;"), "&#99999999;");
     }
 
     #[test]
