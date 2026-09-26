@@ -149,8 +149,13 @@ impl FetchWebTool {
         let request_chars = display_cap.max(REQUEST_MIN_CHARS);
         let mut attempts: Vec<String> = Vec::new();
         let mut best: Option<(&'static str, FetchDoc)> = None;
+        // Providers actually tried, in order; surfaced in the header so a
+        // fallback success reads "via exa->firecrawl" instead of just the
+        // winning provider.
+        let mut tried: Vec<&str> = Vec::new();
 
         if let Some(key) = &self.config.exa_api_key {
+            tried.push("exa");
             match exa::fetch_contents(&self.client, key, url, request_chars, self.config.exa_timeout)
                 .await
             {
@@ -166,6 +171,7 @@ impl FetchWebTool {
         if best.is_none()
             && let Some(key) = &self.config.firecrawl_api_key
         {
+            tried.push("firecrawl");
             match firecrawl::scrape(&self.client, key, url, self.config.firecrawl_timeout).await {
                 Ok(doc) if doc.usable() => best = Some(("firecrawl", doc)),
                 Ok(doc) => attempts.push(format!(
@@ -179,11 +185,12 @@ impl FetchWebTool {
 
         let (text, success, provider, total_chars) = match best {
             Some((provider, doc)) => {
+                let route = tried.join("->");
                 let total = doc.text.chars().count();
                 let budget = call.response_byte_budget(display_cap);
                 let clipped = truncate_bytes_boundary(&doc.text, budget);
                 let clipped = crate::util::truncate_chars(clipped, display_cap);
-                let mut out = format!("[fetch_web: {url} via {provider}, {total} chars");
+                let mut out = format!("[fetch_web: {url} via {route}, {total} chars");
                 if clipped.chars().count() < total {
                     out.push_str(&format!(", truncated to {display_cap}"));
                 }

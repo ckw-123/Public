@@ -67,6 +67,20 @@ enum Rung {
     Bad(String),
 }
 
+/// One classified Bing attempt. `fingerprint` is the raw SERP's URL list,
+/// present whenever a parseable 200 page came back; identical fingerprints
+/// across attempts mean a stable SERP where same-URL retries cannot help
+/// (retry recovery only works on transient per-request flaps).
+struct Attempt {
+    rung: Rung,
+    fingerprint: Option<Vec<String>>,
+}
+
+/// True when two consecutive parseable SERPs have identical URL lists.
+fn is_stable_repeat(prev: &Option<Vec<String>>, cur: &Option<Vec<String>>) -> bool {
+    matches!((prev, cur), (Some(prev), Some(cur)) if prev == cur)
+}
+
 impl<'call> ToolExecutor<ToolCall<'call>> for SearchWebTool {
     fn tool_name(&self) -> ToolName {
         ToolName::plain(TOOL_NAME)
@@ -117,27 +131,37 @@ impl SearchWebTool {
         count: u32,
         intl_host: bool,
         label: &str,
-    ) -> Rung {
+    ) -> Attempt {
         let page = match bing::search_page(client, query, count, self.config.bing_timeout, intl_host)
             .await
         {
             Ok(page) => page,
-            Err(err) => return Rung::Bad(format!("bing {label}: {err:#}")),
+            Err(err) => {
+                return Attempt {
+                    rung: Rung::Bad(format!("bing {label}: {err:#}")),
+                    fingerprint: None,
+                };
+            }
         };
         if page.status != 200 {
-            return Rung::Bad(format!("bing {label}: http {}", page.status));
+            return Attempt {
+                rung: Rung::Bad(format!("bing {label}: http {}", page.status)),
+                fingerprint: None,
+            };
         }
+        let fingerprint = Some(page.hits.iter().map(|hit| hit.url.clone()).collect());
         let scored = score_results(page.hits, query);
         let mut reasons = degradation_reasons(&page.final_url, &scored);
         if let Some(marker) = page.challenge {
             reasons.push(format!("challenge({marker})"));
         }
-        if reasons.is_empty() {
+        let rung = if reasons.is_empty() {
             let note = format!("bing {label}, kept {}/{}", scored.kept.len(), scored.total);
             Rung::Good(scored.kept, note)
         } else {
             Rung::Bad(format!("bing {label}: degraded [{}]", reasons.join(",")))
-        }
+        };
+        Attempt { rung, fingerprint }
     }
 
     async fn handle_call(
@@ -175,19 +199,34 @@ impl SearchWebTool {
         let mut outcome: Option<(Vec<SearchHit>, String)> = None;
 
         // Rung 1: Bing direct; degraded SERPs get an immediate same-URL retry.
+        let mut bing_tries = 0usize;
+        let mut prev_fingerprint: Option<Vec<String>> = None;
         for attempt in 1..=BING_MAX_ATTEMPTS {
             if attempt > 1 {
                 tokio::time::sleep(RETRY_DELAY).await;
             }
-            match self
+            bing_tries = attempt;
+            let current = self
                 .bing_once(&self.client, &query, count, false, "direct+ensearch")
-                .await
-            {
+                .await;
+            let stable = is_stable_repeat(&prev_fingerprint, &current.fingerprint);
+            prev_fingerprint = current.fingerprint;
+            match current.rung {
                 Rung::Good(hits, note) => {
                     outcome = Some((hits, format!("{note} (attempt {attempt})")));
                     break;
                 }
-                Rung::Bad(note) => attempts.push(format!("#{attempt} {note}")),
+                Rung::Bad(note) => {
+                    attempts.push(format!("#{attempt} {note}"));
+                    if stable {
+                        attempts.push(
+                            "bing: SERP identical across retries (stable weakness, not a \
+                             transient flap); skipping remaining retries"
+                                .to_string(),
+                        );
+                        break;
+                    }
+                }
             }
         }
 
@@ -203,9 +242,16 @@ impl SearchWebTool {
                     .build()
             });
             match proxied {
-                Ok(client) => match self.bing_once(&client, &query, count, true, "proxy+www").await {
+                Ok(client) => match self
+                    .bing_once(&client, &query, count, true, "proxy+www")
+                    .await
+                    .rung
+                {
                     Rung::Good(hits, note) => outcome = Some((hits, note)),
-                    Rung::Bad(note) => attempts.push(note),
+                    Rung::Bad(note) => {
+                        bing_tries += 1;
+                        attempts.push(note);
+                    }
                 },
                 Err(err) => attempts.push(format!("bing proxy: invalid proxy config: {err:#}")),
             }
@@ -221,7 +267,7 @@ impl SearchWebTool {
                 Ok(hits) if !hits.is_empty() => {
                     outcome = Some((
                         hits,
-                        format!("exa fallback (bing exhausted {} attempts)", attempts.len()),
+                        format!("exa fallback (bing exhausted {bing_tries} attempts)"),
                     ));
                 }
                 Ok(_) => {
@@ -309,7 +355,21 @@ fn render_results(hits: &[SearchHit], header: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::SearchHit;
+    use super::is_stable_repeat;
     use super::render_results;
+
+    #[test]
+    fn stable_repeat_detection() {
+        let serp_a = Some(vec!["https://a.com/1".to_string(), "https://b.com/2".to_string()]);
+        let serp_b = Some(vec!["https://a.com/1".to_string(), "https://b.com/2".to_string()]);
+        let serp_c = Some(vec!["https://a.com/1".to_string()]);
+        assert!(is_stable_repeat(&serp_a, &serp_b));
+        assert!(!is_stable_repeat(&serp_a, &serp_c));
+        // Transport errors (no fingerprint) never count as stable: a later
+        // retry may still succeed.
+        assert!(!is_stable_repeat(&None, &None));
+        assert!(!is_stable_repeat(&serp_a, &None));
+    }
 
     #[test]
     fn renders_ranked_results() {
